@@ -62,7 +62,7 @@ export const isCloudPersistenceEnabled = () => CLOUD_PERSISTENCE_ENABLED
 export const getLoans = async (): Promise<Loan[]> => {
   if (!supabase) return sortLoans(getStoredLoans())
 
-  const { data, error } = await supabase.from('loans').select('*').eq('owner_id', OWNER_ID).order('created_at', { ascending: false })
+  const { data, error } = await supabase.from('loans').select('*').order('created_at', { ascending: false })
   if (error) throw new Error(error.message)
   return (data ?? []) as Loan[]
 }
@@ -107,7 +107,7 @@ export const createLoan = async (payload: CreateLoanPayload): Promise<Loan> => {
 
 export const markLoanAsReturned = async (id: string) => {
   if (supabase) {
-    const { error } = await supabase.from('loans').update({ status: 'returned' }).eq('id', id).eq('owner_id', OWNER_ID)
+    const { error } = await supabase.from('loans').update({ status: 'returned' }).eq('id', id)
     if (error) throw new Error(error.message)
     return
   }
