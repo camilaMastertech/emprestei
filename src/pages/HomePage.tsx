@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { classifyObjectFromDataUrl } from '../lib/imageClassifier'
 import { buildWhatsappUrl, createLoan, formatDate, getComputedStatus, getLoans, markLoanAsReturned } from '../lib/loans'
 import type { ChangeEvent, FormEvent } from 'react'
@@ -22,15 +22,11 @@ const emptyForm = {
 
 export function HomePage() {
   const [form, setForm] = useState(emptyForm)
-  const [loans, setLoans] = useState<Loan[]>([])
+  const [loans, setLoans] = useState<Loan[]>(() => getLoans())
   const [lastCreated, setLastCreated] = useState<Loan | null>(null)
   const [isClassifying, setIsClassifying] = useState(false)
   const [classificationHint, setClassificationHint] = useState('')
   const latestUploadRef = useRef(0)
-
-  useEffect(() => {
-    setLoans(getLoans())
-  }, [])
 
   const shareUrl = useMemo(() => {
     if (!lastCreated) return '#'
