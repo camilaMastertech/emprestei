@@ -1,7 +1,12 @@
+import { createClient } from '@supabase/supabase-js'
 import { OWNER_ID, OWNER_WHATSAPP } from '../types'
 import type { CreateLoanPayload, Loan, LoanComputedStatus } from '../types'
 
 const LOANS_STORAGE_KEY = 'emprestei.loans.v1'
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL
+const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY
+const CLOUD_PERSISTENCE_ENABLED = Boolean(SUPABASE_URL && SUPABASE_ANON_KEY)
+const supabase = CLOUD_PERSISTENCE_ENABLED ? createClient(SUPABASE_URL!, SUPABASE_ANON_KEY!) : null
 
 const DAY_IN_MS = 24 * 60 * 60 * 1000
 
@@ -30,17 +35,50 @@ const getStoredLoans = (): Loan[] => {
 
 const setStoredLoans = (loans: Loan[]) => localStorage.setItem(LOANS_STORAGE_KEY, JSON.stringify(loans))
 
-export const getLoans = () => getStoredLoans()
+const sortLoans = (loans: Loan[]) =>
+  [...loans].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
 
-export const getLoanBySlug = (slug: string) => getStoredLoans().find((loan) => loan.slug === slug)
-
-export const createLoan = (payload: CreateLoanPayload): Loan => {
-  const loans = getStoredLoans()
-  const createdAt = nowIso()
+const findUniqueSlug = async (existingLoans: Loan[]) => {
   let slug = makeSlug()
-  while (loans.some((loan) => loan.slug === slug)) {
+  const hasSlugLocally = () => existingLoans.some((loan) => loan.slug === slug)
+
+  if (!supabase) {
+    while (hasSlugLocally()) {
+      slug = makeSlug()
+    }
+    return slug
+  }
+
+  while (true) {
+    const { data, error } = await supabase.from('loans').select('id').eq('slug', slug).maybeSingle()
+    if (error) throw new Error(error.message)
+    if (!data && !hasSlugLocally()) return slug
     slug = makeSlug()
   }
+}
+
+export const isCloudPersistenceEnabled = () => CLOUD_PERSISTENCE_ENABLED
+
+export const getLoans = async (): Promise<Loan[]> => {
+  if (!supabase) return sortLoans(getStoredLoans())
+
+  const { data, error } = await supabase.from('loans').select('*').eq('owner_id', OWNER_ID).order('created_at', { ascending: false })
+  if (error) throw new Error(error.message)
+  return (data ?? []) as Loan[]
+}
+
+export const getLoanBySlug = async (slug: string): Promise<Loan | null> => {
+  if (!supabase) return getStoredLoans().find((loan) => loan.slug === slug) ?? null
+
+  const { data, error } = await supabase.from('loans').select('*').eq('slug', slug).maybeSingle()
+  if (error) throw new Error(error.message)
+  return (data as Loan | null) ?? null
+}
+
+export const createLoan = async (payload: CreateLoanPayload): Promise<Loan> => {
+  const loans = getStoredLoans()
+  const createdAt = nowIso()
+  const slug = await findUniqueSlug(loans)
 
   const loan: Loan = {
     id: crypto.randomUUID(),
@@ -57,11 +95,23 @@ export const createLoan = (payload: CreateLoanPayload): Loan => {
     status: 'active',
   }
 
-  setStoredLoans([loan, ...loans])
+  if (supabase) {
+    const { error } = await supabase.from('loans').insert(loan)
+    if (error) throw new Error(error.message)
+    return loan
+  }
+
+  setStoredLoans(sortLoans([loan, ...loans]))
   return loan
 }
 
-export const markLoanAsReturned = (id: string) => {
+export const markLoanAsReturned = async (id: string) => {
+  if (supabase) {
+    const { error } = await supabase.from('loans').update({ status: 'returned' }).eq('id', id).eq('owner_id', OWNER_ID)
+    if (error) throw new Error(error.message)
+    return
+  }
+
   const loans = getStoredLoans()
   const next = loans.map((loan) => (loan.id === id ? { ...loan, status: 'returned' as const } : loan))
   setStoredLoans(next)

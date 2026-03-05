@@ -1,6 +1,14 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { classifyObjectFromDataUrl } from '../lib/imageClassifier'
-import { buildWhatsappUrl, createLoan, formatDate, getComputedStatus, getLoans, markLoanAsReturned } from '../lib/loans'
+import {
+  buildWhatsappUrl,
+  createLoan,
+  formatDate,
+  getComputedStatus,
+  getLoans,
+  isCloudPersistenceEnabled,
+  markLoanAsReturned,
+} from '../lib/loans'
 import type { ChangeEvent, FormEvent } from 'react'
 import type { Loan, LoanCategory } from '../types'
 
@@ -22,11 +30,32 @@ const emptyForm = {
 
 export function HomePage() {
   const [form, setForm] = useState(emptyForm)
-  const [loans, setLoans] = useState<Loan[]>(() => getLoans())
+  const [loans, setLoans] = useState<Loan[]>([])
   const [lastCreated, setLastCreated] = useState<Loan | null>(null)
   const [isClassifying, setIsClassifying] = useState(false)
   const [classificationHint, setClassificationHint] = useState('')
+  const [isSaving, setIsSaving] = useState(false)
+  const [loadError, setLoadError] = useState('')
   const latestUploadRef = useRef(0)
+
+  useEffect(() => {
+    let cancelled = false
+
+    void getLoans()
+      .then((items) => {
+        if (!cancelled) {
+          setLoans(items)
+          setLoadError('')
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setLoadError('Não foi possível carregar os empréstimos.')
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const shareUrl = useMemo(() => {
     if (!lastCreated) return '#'
@@ -68,19 +97,32 @@ export function HomePage() {
     reader.readAsDataURL(file)
   }
 
-  const onSubmit = (event: FormEvent) => {
+  const onSubmit = async (event: FormEvent) => {
     event.preventDefault()
-    if (!form.photo) return
+    if (!form.photo || isSaving) return
 
-    const created = createLoan(form)
-    setLastCreated(created)
-    setLoans(getLoans())
-    setForm(emptyForm)
+    try {
+      setIsSaving(true)
+      const created = await createLoan(form)
+      setLastCreated(created)
+      setLoans(await getLoans())
+      setForm(emptyForm)
+      setLoadError('')
+    } catch {
+      setLoadError('Não foi possível salvar o empréstimo.')
+    } finally {
+      setIsSaving(false)
+    }
   }
 
-  const handleMarkReturned = (id: string) => {
-    markLoanAsReturned(id)
-    setLoans(getLoans())
+  const handleMarkReturned = async (id: string) => {
+    try {
+      await markLoanAsReturned(id)
+      setLoans(await getLoans())
+      setLoadError('')
+    } catch {
+      setLoadError('Não foi possível atualizar o status do empréstimo.')
+    }
   }
 
   return (
@@ -99,6 +141,9 @@ export function HomePage() {
         <p className="hero-subtitle">Controle simples, direto e com WhatsApp.</p>
         <p className="hero-text">
           Cadastre em segundos o que saiu da sua mão, com foto, prazo e link público para facilitar o retorno.
+        </p>
+        <p className="section-copy">
+          Persistência: {isCloudPersistenceEnabled() ? 'Supabase (produção)' : 'localStorage (local)'}
         </p>
         <a href="#registro" className="pill-link">
           registrar agora
@@ -178,7 +223,7 @@ export function HomePage() {
           </label>
 
           <button className="button" type="submit">
-            Salvar empréstimo
+            {isSaving ? 'Salvando...' : 'Salvar empréstimo'}
           </button>
         </form>
 
@@ -192,6 +237,7 @@ export function HomePage() {
       <section className="panel" id="lista">
         <h2>Meus empréstimos</h2>
         <p className="section-copy">Acompanhe prazos, status e lembretes sem fricção.</p>
+        {loadError && <p className="hint">{loadError}</p>}
         <div className="cards">
           {loans.length === 0 && <p className="empty">Nenhum empréstimo ainda.</p>}
 

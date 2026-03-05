@@ -1,9 +1,66 @@
+import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { buildWhatsappUrl, formatDate, getComputedStatus, getLoanBySlug } from '../lib/loans'
+import type { Loan } from '../types'
 
 export function PublicLoanPage() {
   const { slug = '' } = useParams()
-  const loan = getLoanBySlug(slug)
+  const [loan, setLoan] = useState<Loan | null>(null)
+  const [isLoading, setIsLoading] = useState(true)
+  const [hasError, setHasError] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+
+    void getLoanBySlug(slug)
+      .then((data) => {
+        if (!cancelled) {
+          setLoan(data)
+          setHasError(false)
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setHasError(true)
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoading(false)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [slug])
+
+  if (isLoading) {
+    return (
+      <main className="page">
+        <header className="topbar">
+          <p className="brand">EMPRESTEI</p>
+        </header>
+        <section className="panel">
+          <h1>Emprestei</h1>
+          <p>Carregando registro...</p>
+        </section>
+      </main>
+    )
+  }
+
+  if (hasError) {
+    return (
+      <main className="page">
+        <header className="topbar">
+          <p className="brand">EMPRESTEI</p>
+        </header>
+        <section className="panel">
+          <h1>Emprestei</h1>
+          <p>Erro ao carregar registro.</p>
+          <Link className="button button-outline" to="/">
+            Voltar
+          </Link>
+        </section>
+      </main>
+    )
+  }
 
   if (!loan) {
     return (
